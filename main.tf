@@ -37,21 +37,27 @@ module "blog_vpc" {
 module "autoscaling" {
   source  = "terraform-aws-modules/autoscaling/aws"
   version = "9.0.1"
-  # insert the 1 required variable here
 
-  name = "blog"
+  name     = "blog"
   min_size = 1
   max_size = 2
 
   vpc_zone_identifier = module.blog_vpc.public_subnets
-  traffic_source_attachments   = module.blog_alb.target_groups
   security_groups     = [module.blog_sg.security_group_id]
-  
-  image_id            = data.aws_ami.app_ami.id
-  instance_type       = var.instance_type
 
+  image_id      = data.aws_ami.app_ami.id
+  instance_type = var.instance_type
+
+  # Attach the ASG to the ALB Target Group via its ARN
+  traffic_source_attachments = {
+    tg_app = {
+      traffic_source_identifier = module.blog_alb.target_groups["app"].arn
+      # traffic_source_type defaults to "elbv2"
+    }
+  }
 }
 
+# Application Load Balancer with a target group FORWARDing to instances
 module "blog_alb" {
   source = "terraform-aws-modules/alb/aws"
 
@@ -59,7 +65,7 @@ module "blog_alb" {
   vpc_id  = module.blog_vpc.vpc_id
   subnets = module.blog_vpc.public_subnets
 
-  # Security Group
+  # ALB security group rules
   security_group_ingress_rules = {
     all_http = {
       from_port   = 80
@@ -83,26 +89,31 @@ module "blog_alb" {
     }
   }
 
-  listeners = {
-    ex-http-https-redirect = {
-      port     = 80
-      protocol = "HTTP"
-      redirect = {
-        port        = "443"
-        protocol    = "HTTPS"
-        status_code = "HTTP_301"
+  # Define a target group WITHOUT fixed targets; ASG will attach instances
+  target_groups = {
+    app = {
+      name_prefix      = "h1"
+      target_type      = "instance"
+      protocol         = "HTTP"
+      port             = 80
+      health_check = {
+        path     = "/"
+        protocol = "HTTP"
+        matcher  = "200-399"
+        port     = "traffic-port"
       }
     }
   }
 
-  target_groups = {
-    ex-instance = {
-      name_prefix      = "h1"
-      protocol         = "HTTP"
-      port             = 80
-      target_type      = "instance"
-      target_id        = "i-0f6d38a07d50d080f"
+  # Simple HTTP listener forwarding to the TG above (add HTTPS later if you have certs)
+  listeners = {
+    http = {
+      port     = 80
+      protocol = "HTTP"
+      forward  = { target_group_key = "app" }
     }
+    # If you want HTTP->HTTPS redirect, define an HTTPS listener with certificate_arn,
+    # then add a separate HTTP 80 redirect listener.
   }
 
   tags = {
