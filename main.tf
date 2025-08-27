@@ -44,7 +44,7 @@ module "autoscaling" {
   max_size = 2
 
   vpc_zone_identifier = module.blog_vpc.public_subnets
-  target_group_arns   = module.blog_alb.target_group_arns
+  traffic_source_attachments   = module.blog_alb.target_group_arns
   security_groups     = [module.blog_sg.security_group_id]
   
   image_id            = data.aws_ami.app_ami.id
@@ -92,6 +92,16 @@ module "blog_alb" {
         protocol    = "HTTPS"
         status_code = "HTTP_301"
       }
+    }
+  }
+
+  target_groups = {
+    ex-instance = {
+      name_prefix      = "h1"
+      protocol         = "HTTP"
+      port             = 80
+      target_type      = "instance"
+      target_id        = "i-0f6d38a07d50d080f"
     }
   }
 
